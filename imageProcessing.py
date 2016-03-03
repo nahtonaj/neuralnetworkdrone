@@ -25,7 +25,8 @@ class ImProcess(object):
 		if image is None:
 			print 'Image is null!'
 		else:
-			return cv2.cvtColor(cv2.resize(image, None, fx=.2, fy=.2, interpolation = cv2.INTER_AREA), cv2.COLOR_BGR2GRAY)
+			imgres = cv2.resize(image, None, fx=.3, fy=.3, interpolation = cv2.INTER_AREA)
+			return cv2.cvtColor(imgres, cv2.COLOR_BGR2GRAY)
 	def FAST(self, img):
 		fast = cv2.FastFeatureDetector_create()
 		dst, des = fast.detectAndCompute(img,None)
@@ -80,13 +81,14 @@ class ImProcess(object):
 
 			return cv2.drawMatchesKnn(img1,kp1,img2,kp2,matches[:self.matchPoints],None,**draw_params)
 		if ver2 == 'BF':
-			bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-			matches = bf.match(des1, des2)
+			bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+			matches = bf.knnMatch(des1, des2, k=2)
 			# matches = sorted(matches, key = lambda x:x.distance)
-			# good = []
-			# for m,n in matches:
-			# 	if m.distance < 0.7*n.distance:
-			# 		good.append(m)
+			good = []
+			for m,n in matches:
+				if m.distance < 0.75*n.distance:
+					good.append(m)
+			matches=good
 			if draw == True:
 				return cv2.drawMatches(img1, kp1, img2, kp2, matches[:self.matchPoints], None, flags=2)
 			else:
