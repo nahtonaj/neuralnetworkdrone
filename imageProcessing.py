@@ -20,16 +20,17 @@ class ImProcess(object):
         self.cornerAlg = cornerAlg
         self.matchAlg = matchAlg
         self.matchPoints = matchPoints
-        self.img1 = cv2.imread(file1)
-        self.img2 = cv2.imread(file2)
+        self.img1 = file1#cv2.imread(file1)
+        self.img2 = file2#cv2.imread(file2)
         self.grayimg1 = self.initiateimage(self.img1)
         self.grayimg2 = self.initiateimage(self.img2)
 
     def initiateimage(self, image):
         if image is None:
             print 'Image is null!'
+            break
         else:
-            imgres = cv2.resize(image, None, fx=.2, fy=.2, interpolation=cv2.INTER_AREA)
+            imgres = cv2.resize(image, None, fx=.1, fy=.1, interpolation=cv2.INTER_AREA)
             return cv2.cvtColor(imgres, cv2.COLOR_BGR2GRAY)
 
     def FAST(self, img):
@@ -126,6 +127,16 @@ class ImProcess(object):
     # cv2.imshow('image2', temp2)
     # cv2.imshow('image2', self.i)
 
+class VideoStream(object):
+    def __init__(self, capid):
+        self.cap = cv2.VideoCapture(capid)
+        self.cap.open(capid)
+    def getFrame(self):
+        ret, frame = self.cap.read()
+      	return frame
+    def release(self):
+        self.cap.release()
+
 
 class NNet(object):
     def __init__(self, points1, points2):
@@ -138,16 +149,16 @@ class NNet(object):
 
 
 class Main(object):
-    file1 = '/home/jonathan/Documents/ImageProcessingImages/img1.JPG'
-    file2 = '/home/jonathan/Documents/ImageProcessingImages/img2.JPG'
-    Thread1 = ImProcess(file1, file2, 'orb', 'BF', 500)
-    Thread1.main()
-
-
-cv2.waitKey(0);
-cv2.destroyAllWindows();
-
-
+    Camera1 = VideoStream(0)
+    while(True):
+	    file1 = Camera1.getFrame()#'/home/jonathan/Documents/ImageProcessingImages/img1.JPG'
+	    file2 = cv2.imread('/home/jonathan/Documents/ImageProcessingImages/img2.JPG')
+	    Thread1 = ImProcess(file1, file2, 'orb', 'BF', 50)
+	    Thread1.main()
+	    if cv2.waitKey(2) & 0xFF == ord('q'):
+	        Camera1.release()
+	        cv2.destroyAllWindows()
+	        break
 
 
 # <codecell>
