@@ -4,14 +4,12 @@
 # <codecell>
 
 import cv2
-import pybrain.tools.shortcuts as pb
+import numpy as np
+from pybrain.datasets import SupervisedDataSet
+from pybrain.tools.shortcuts import buildNetwork
+from pybrain.supervised.trainers import BackpropTrainer
 
 
-# def rotate(angle, src, dst):
-#     img = src
-#     rows,cols = img.shape
-#     M = cv2.getRotationMatrix2D((cols/2,rows/2),angle,1)
-#     dst = cv2.warpAffine(img,M,(cols,rows))
 
 
 class Corner(object):
@@ -131,7 +129,7 @@ class Matcher(object):
         matches = self.bf.knnMatch(des1, des2, k=2)
         good = []
         for m, n in matches:
-            if m.distance < 0.5 * n.distance:
+            if m.distance < 0.65 * n.distance:
                 good.append(m)
         list_kp1 = []
         list_kp2 = []
@@ -147,11 +145,10 @@ class Matcher(object):
         else:
             return list_kp1, list_kp2
 
-
 class VideoStream(object):
     def __init__(self, capid):
         self.cap = cv2.VideoCapture(capid)
-        self.cap.set(5,24)
+        self.cap.set(5, 60)
         self.cap.set(3, 640)
         self.cap.set(4, 480)
         # self.cap.open(capid)
@@ -163,41 +160,94 @@ class VideoStream(object):
     def release(self):
         self.cap.release()
 
-
 class NNet(object):
-    def __init__(self, points1, points2):
-        self.inputarr = points1
-        self.expected = points2
-        self.net = pb.buildNetwork(2, 4, 2)
+    def __init__(self):
+        self.net = buildNetwork(2, 4, 2, bias=True)
+        self.net.randomize()
+        print self.net
+        self.ds = SupervisedDataSet(2,2)
+        self.trainer = BackpropTrainer(self.net, self.ds, learningrate = 0.1, momentum=0.99)
+    def addTrainDS(self, data1, data2, max):
+        for x in [1,2]:
+            norm1 = self.normalize(data1,max)
+            norm2 = self.normalize(data2,max)
+        for x in range(len(norm1)):
+            self.ds.addSample(norm1[x], norm2[x])
+    def train(self):
+        print "Training"
+        # print self.trainer.train()
+        trndata, tstdata = self.ds.splitWithProportion(.25)
+        self.trainer.trainUntilConvergence(verbose=True,
+                                           trainingData=trndata,
+                                           validationData=tstdata,
+                                           validationProportion=.3,
+                                           maxEpochs=500)
+        # self.trainer.trainOnDataset(trndata,500)
+        self.trainer.testOnData(tstdata, verbose= True)
+
+    def activate(self, data):
+        for x in data:
+            self.net.activate(x)
+
+    def normalize(self, data, max):
+        normData = np.zeros((len(data), 2))
+        for x in [0,1]:
+            for y in range(len(data)):
+                val = data[y][x]
+                normData[y][x] = (val)/(max[x])
+        # print normData
+        return normData
+
+    def denormalize(self, data, max):
+        deNorm = np.zeros((len(data), 2))
+        for x in [0,1]:
+            for y in range(len(data)):
+                val = data[y][x]
+                deNorm[y][x] = val*max[x]
+        return deNorm
+
+    def getOutput(self, mat, max):
+        norm = self.normalize(mat, max)
+        out = []
+        for val in norm:
+            out.append(self.net.activate(val))
+        return self.denormalize(out, max)
 
     # def
 
-
-class Main(object):
-    Camera1 = VideoStream(1)
-    Camera2 = VideoStream(0)
+if __name__ == "__main__":
+    # Camera1 = VideoStream(0)
+    # Camera2 = Camera1
     Matcher1 = Matcher()
-    Thread1 = Corner()
-    while(True):
-        file1 = Camera1.getFrame()
-        file2 = Camera2.getFrame()
-        Thread1.setImages(file1, file2)
-        corner1, corner2 = Thread1.getCorners()
-        grayimg1, grayimg2 = Thread1.getImages()
-        try:
-            # Matcher1.match(corner1, corner2, 50, True)
-            # mat1, mat2 = Matcher1.match(corner1, corner2, 50, False)
-            kp1, kp2, good, mat1, mat2 = Matcher1.match(corner1, corner2, 50, True)
-            print "Coordinate set 1 of ", len(mat1),": ", mat1
-            print "Coordinate set 2 of ", len(mat2),": ", mat2
-            cv2.imshow('img', cv2.drawMatches(grayimg1, kp1, grayimg2, kp2, good, None, flags=2))
-        except:
-            Thread1.reset()
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            Camera1.release()
-            Camera2.release()
-            Thread1.reset()
-            cv2.destroyAllWindows()
-            break
+    Corner1 = Corner()
+    NNet1 = NNet()
+    # while(True):
+    # file1 = Camera1.getFrame()
+    # file2 = Camera2.getFrame()
+    file1 = cv2.imread('/home/jonathan/Documents/ImageProcessingImages/img1.JPG')
+    file2 = cv2.imread('/home/jonathan/Documents/ImageProcessingImages/img2.JPG')
+    height, width = file1.shape[:2]
+    Corner1.setImages(file1, file2)
+    corner1, corner2 = Corner1.getCorners()
+    grayimg1, grayimg2 = Corner1.getImages()
+    # try:
+        # Matcher1.match(corner1, corner2, 50, True)
+        # mat1, mat2 = Matcher1.match(corner1, corner2, 50, False)
+    kp1, kp2, good, mat1, mat2 = Matcher1.match(corner1, corner2, 50, True)
+    print "Coordinate set 1 of ", len(mat1),": ", mat1
+    print "Coordinate set 2 of ", len(mat2),": ", mat2
+    NNet1.addTrainDS(mat1, mat2, (height, width))
+    NNet1.train()
+    print NNet1.getOutput(mat1, (height, width))
+    cv2.imshow('img', cv2.drawMatches(grayimg1, kp1, grayimg2, kp2, good, None, flags=2))
+    # except:
+    #     Corner1.reset()
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        Camera1.release()
+        Camera2.release()
+        Corner1.reset()
+        cv2.destroyAllWindows()
+        # break
+
 
 # <codecell>
