@@ -9,11 +9,16 @@ from pybrain.datasets import SupervisedDataSet
 from pybrain.tools.shortcuts import buildNetwork
 from pybrain.structure import TanhLayer
 from pybrain.supervised.trainers import BackpropTrainer
+from pybrain.tools.customxml import NetworkWriter
+from pybrain.tools.customxml import NetworkReader
+
 import cPickle as pickle
 
 
 
 class Corner(object):
+    def __init__(self):
+        self.orb = cv2.ORB_create()
     # global img1, img2, grayimg1, grayimg2, cornerMat1, cornerMat2, temp1
         # self.matchPoints = matchPoints
         # self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
@@ -39,10 +44,9 @@ class Corner(object):
         return cv2.drawKeypoints(img, dst, None, color=(255, 0, 0), flags=0)
 
     def ORB(self, img):
-        orb = cv2.ORB_create()
 
         # find the keypoints with ORB
-        return orb.detectAndCompute(img, None)
+        return self.orb.detectAndCompute(img, None)
 
     # compute the descriptors with ORB
     # kp, des = orb.compute(img, kp)
@@ -169,7 +173,12 @@ class VideoStream(object):
 class NNet(object):
     def __init__(self, inpNeurons, hiddenNeurons, outNeurons):
         self.net = buildNetwork(inpNeurons, hiddenNeurons, outNeurons, hiddenclass=TanhLayer, bias=True)
-        self.net.randomize()
+        if raw_input('Recover Network?: y/n\n')=='y':
+            print 'Recovering Network'
+            net = NetworkReader.readFrom('Network1.xml')
+        else:
+            print 'New Network'
+            self.net.randomize()
         print self.net
         self.ds = SupervisedDataSet(inpNeurons,outNeurons)
         self.trainer = BackpropTrainer(self.net, self.ds, learningrate = 0.01, momentum=0.99)
@@ -195,6 +204,9 @@ class NNet(object):
                                            maxEpochs=1000)
         # self.trainer.trainOnDataset(trndata,500)
         self.trainer.testOnData(tstdata, verbose= True)
+        # if raw_input('Save Network?: y/n\n')=='y':
+        NetworkWriter.writeToFile(self.net, 'Network1.xml')
+        print 'Saving network'
 
     def activate(self, data):
         for x in data:
@@ -258,7 +270,7 @@ class NNet(object):
             #     out.append(self.net.activate(val))
             # return np.asarray(self.denormalize(out, max))
     def getRemap(self, sizex, sizey):
-        print 'Mapping begin'
+        print 'Mapping...'
 
         oldx = np.arange(sizex)
         oldy = np.arange(sizey)
@@ -274,6 +286,12 @@ class NNet(object):
                 mapy[x][y] = newy
         # newx, newy = self.getOutput(oldxy, np.asarray((sizex, sizey)))
         print 'Mapping Done'
+        i = open('mapx.xml', 'wb')
+        j = open('mapy.xml', 'wb')
+        pickle.dump(mapx, i)
+        pickle.dump(mapy, j)
+
+        print 'Saving maps'
         return mapx, mapy
 
 
@@ -286,21 +304,40 @@ class NNet(object):
                 #     pass
 
 
-    # def
+    def getDifference(self, image, remap):
+        diff = np.empty_like(image)
+        if image.shape[:2]==remap.shape[:2]:
+            # diff = np.absolute((remap-image))
+            diff = np.absolute(remap-image)
+            return diff
+        else:
+            print 'Image and remap size unequal'
 
 if __name__ == "__main__":
 
-    Camera1 = VideoStream(0)
-    Camera2 = VideoStream(1)
-    file1dir = '/home/jonathan/Documents/ImageProcessingImages/left2.jpg'
-    file2dir = '/home/jonathan/Documents/ImageProcessingImages/right2.jpg'
+    Camera1 = VideoStream(1)
+    Camera2 = VideoStream(2)
+    file1dir = '/home/jonathan/Documents/ImageProcessingImages/left5.jpg'
+    file2dir = '/home/jonathan/Documents/ImageProcessingImages/right5.jpg'
     Matcher1 = Matcher()
     Corner1 = Corner()
     NNet1 = NNet(2,6,2)
-    mapx = None
-    mapy = None
-    matchpoints = 50
-    resize = .5
+    try:
+        mapxdir = open('mapx.xml', 'rb')
+        mapydir = open('mapy.xml', 'rb')
+        matchpointsdir = open('matchpoints.xml', 'rb')
+        resizedir = open('resize.xml', 'rb')
+        mapx = pickle.load(mapxdir)
+        mapy = pickle.load(mapydir)
+        matchpoints = pickle.load(matchpointsdir)
+        resize = pickle.load(resizedir)
+        print 'Recovering maps'
+    except:
+        print 'New maps'
+        mapx = None
+        mapy = None
+        matchpoints = 50
+        resize = .5
     while True:
         m = raw_input("Select Task \n 1. Train\n 2. Run\n 3. Cameras\n 4. Test Module\n 5. Exit\n >>:")
         if m == '0':
@@ -308,48 +345,33 @@ if __name__ == "__main__":
         # Camera1.release()
         # Camera2.release()
         if m == '1':
+            FrameMatch=True
+            p = open('matchpoints.xml', 'wb')
+            q = open('resize.xml', 'wb')
             matchpoints = int(raw_input("Number of Match Points: "))
             resize = float(raw_input("Image scale: "))
-            # while(True):
-            # file1 = Camera1.getFrame()
-            # file2 = Camera2.getFrame()
-            file1 = cv2.resize(cv2.imread(file1dir), None, fx=resize, fy=resize, interpolation=cv2.INTER_AREA)
-            file2 = cv2.resize(cv2.imread(file2dir), None, fx=resize, fy=resize, interpolation=cv2.INTER_AREA)
-            if file1 is None or file2 is None:
-                print 'Camera Error: Failed to get image\nReleasing Cameras..'
-                Camera1.release()
-                Camera2.release()
-                break
-            height, width = file1.shape[:2]
-            Corner1.setImages(file1, file2)
-            corner1, corner2 = Corner1.getCorners()
-            grayimg1, grayimg2 = Corner1.getImages()
-            # try:
-            # Matcher1.match(corner1, corner2, 50, True)
-            # mat1, mat2 = Matcher1.match(corner1, corner2, 50, False)
-            kp1, kp2, good, mat1, mat2 = Matcher1.match(corner1, corner2, matchpoints, True)
-            # cv2.imshow('img', cv2.drawMatches(grayimg1, kp1, grayimg2, kp2, good, None, flags=2))
-            print "Coordinate set 1 of ", len(mat1),": ", mat1, "\nCoordinate set 2 of ", len(mat2),": ", mat2
-            NNet1.addTrainDS(mat1, mat2, (height, width))
-            NNet1.train()
-            # pickle
-            mapx, mapy = NNet1.getRemap(height, width)
-            # print NNet1.getOutput(mat1, (height, width))
-            # except:
-
-            #     Corner1.reset()
-            # if cv2.waitKey(1) & 0xFF == ord('q'):
-            #     Camera1.release()
-            #     Camera2.release()
-            #     Corner1.reset()
-            #     cv2.destroyAllWindows()
-            # break
-        if m == '2':
-            while(True):
-                # file1 = Camera1.getFrame()
-                # file2 = Camera2.getFrame()
-                file1 = cv2.resize(cv2.imread(file1dir), None, fx=resize, fy=resize, interpolation=cv2.INTER_AREA)
-                file2 = cv2.resize(cv2.imread(file2dir), None, fx=resize, fy=resize, interpolation=cv2.INTER_AREA)
+            pickle.dump(matchpoints, p)
+            pickle.dump(resize, q)
+            file1 = None
+            file2 = None
+            while FrameMatch:
+                print 'Getting frames...'
+                Camera1.getFrame()
+                Camera2.getFrame()
+                while (file1 is None or file2 is None):
+                    file1 = Camera1.getFrame()
+                    file2 = Camera2.getFrame()
+                print 'done'
+                # file1 = cv2.resize(cv2.imread(file1dir), None, fx=resize, fy=resize, interpolation=cv2.INTER_AREA)
+                # file2 = cv2.resize(cv2.imread(file2dir), None, fx=resize, fy=resize, interpolation=cv2.INTER_AREA)
+                # cv2.imshow('left', file1)
+                # cv2.imshow('right', file2)
+                # if file1 is None or file2 is None:
+                #     print 'Camera Error: Failed to get image'
+                #     # Camera1.release()
+                #     # Camera2.release()
+                #     break
+                # while(True):
                 height, width = file1.shape[:2]
                 Corner1.setImages(file1, file2)
                 corner1, corner2 = Corner1.getCorners()
@@ -358,6 +380,44 @@ if __name__ == "__main__":
                 # Matcher1.match(corner1, corner2, 50, True)
                 # mat1, mat2 = Matcher1.match(corner1, corner2, 50, False)
                 kp1, kp2, good, mat1, mat2 = Matcher1.match(corner1, corner2, matchpoints, True)
+                # cv2.imshow('img', cv2.drawMatches(grayimg1, kp1, grayimg2, kp2, good, None, flags=2))
+                if len(mat1)==0:
+                    break
+                print "Coordinate set 1 of ", len(mat1),": ", mat1, "\nCoordinate set 2 of ", len(mat2),": ", mat2
+                NNet1.addTrainDS(mat1, mat2, (height, width))
+                NNet1.train()
+                # pickle
+                if raw_input('Retrain network?: y/n\n')=='n':
+                    mapx, mapy = NNet1.getRemap(height, width)
+                    FrameMatch=False
+
+                    # print NNet1.getOutput(mat1, (height, width))
+                    # except:
+
+                    #     Corner1.reset()
+                    # if cv2.waitKey(1) & 0xFF == ord('q'):
+                    #     Camera1.release()
+                    #     Camera2.release()
+                    #     # Corner1.reset()
+                    #     cv2.destroyAllWindows()
+                    # break
+        if m == '2':
+            while(True):
+                file1 = Camera1.getFrame()
+                file2 = Camera2.getFrame()
+                # file1 = cv2.resize(cv2.imread(file1dir), None, fx=resize, fy=resize, interpolation=cv2.INTER_AREA)
+                # file2 = cv2.resize(cv2.imread(file2dir), None, fx=resize, fy=resize, interpolation=cv2.INTER_AREA)
+                height, width = file1.shape[:2]
+                Corner1.setImages(file1, file2)
+                corner1, corner2 = Corner1.getCorners()
+                grayimg1, grayimg2 = Corner1.getImages()
+                # try:
+                # Matcher1.match(corner1, corner2, 50, True)
+                # mat1, mat2 = Matcher1.match(corner1, corner2, 50, False)
+                try:
+                    kp1, kp2, good, mat1, mat2 = Matcher1.match(corner1, corner2, matchpoints, True)
+                except:
+                    pass
                 # print "Coordinate set 1 of ", len(mat1),": \n", mat1
                 # print "Coordinate set 2 of ", len(mat2),": \n", mat2
                 # NNet1.addTrainDS(mat1, mat2, (height, width))
@@ -368,9 +428,20 @@ if __name__ == "__main__":
                     m = '0'
                     break
                 else:
-                    remap = cv2.remap(grayimg1, mapy, mapx, cv2.INTER_NEAREST)
-                    cv2.imshow('image', remap)
-                    print 'Remapping...'
+                    # print 'Remapping...'
+                    remap = cv2.remap(grayimg1, mapy, mapx, cv2.INTER_LINEAR, cv2.BORDER_TRANSPARENT)
+                    # print remap.shape[:2]
+                    # print grayimg2.shape[:2]
+                    # print 'Getting difference image...'
+                    # diff = NNet1.getDifference(grayimg1, remap)
+                    diff = cv2.absdiff(remap, grayimg2)
+                    print cv2.matchTemplate(remap,grayimg2, method=cv2.TM_CCORR_NORMED)
+                    # diff = cv2.adaptiveThreshold(diff, 80, adaptiveMethod=cv2.ADAPTIVE_THRESH_GAUSSIAN_C, thresholdType=cv2.THRESH_BINARY, blockSize=7, C=5)
+                cv2.imshow('right', grayimg2)
+                cv2.imshow('remapped', remap)
+                cv2.imshow('diff', diff)
+                # cv2.imwrite("~/home/jonathan/Documents/ImageProcessingImages/diff.jpg", diff)
+                # cv2.imwrite("~/home/jonathan/Documents/ImageProcessingImages/right.jpg", grayimg2)
                 # print "remap: ", remap
                 # cv2.imshow('img', cv2.drawMatches(grayimg1, kp1, grayimg2, kp2, good, None, flags=2))
                 # except:
@@ -379,18 +450,18 @@ if __name__ == "__main__":
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     Camera1.release()
                     Camera2.release()
-                    Corner1.reset()
+                    # Corner1.reset()
                     cv2.destroyAllWindows()
-                    cv2.waitKey(0)
+                    # cv2.waitKey(0)
                     m='0'
                     break
 
         if m=='3':
             while(True):
-                # file1 = Camera1.getFrame()
-                # file2 = Camera2.getFrame()
-                file1 = cv2.imread(file1dir)
-                file2 = cv2.imread('/home/jonathan/Documents/ImageProcessingImages/imRung2.JPG')
+                file1 = Camera1.getFrame()
+                file2 = Camera2.getFrame()
+                # file1 = cv2.imread(file1dir)
+                # file2 = cv2.imread('/home/jonathan/Documents/ImageProcessingImages/imRung2.JPG')
                 height, width = file1.shape[:2]
                 Corner1.setImages(file1, file2)
                 corner1, corner2 = Corner1.getCorners()
@@ -398,25 +469,26 @@ if __name__ == "__main__":
                 # try:
                 # Matcher1.match(corner1, corner2, 50, True)
                 # mat1, mat2 = Matcher1.match(corner1, corner2, 50, False)
-                kp1, kp2, good, mat1, mat2 = Matcher1.match(corner1, corner2, 50, True)
-                print "Coordinate set 1 of ", len(mat1),": \n", mat1
-                print "Coordinate set 2 of ", len(mat2),": \n", mat2
-                cv2.imshow('img', cv2.drawMatches(grayimg1, kp1, grayimg2, kp2, good, None, flags=2))
+                try:
+                    kp1, kp2, good, mat1, mat2 = Matcher1.match(corner1, corner2, matchpoints, True)
+                    print "Coordinate set 1 of ", len(mat1),": \n", mat1
+                    print "Coordinate set 2 of ", len(mat2),": \n", mat2
+                    cv2.imshow('img', cv2.drawMatches(grayimg1, kp1, grayimg2, kp2, good, None, flags=2))
+                except:
+                    pass
                 # except:
 
                 #     Corner1.reset()
-                if cv2.waitKey(0) & 0xFF == ord('q'):
+                if cv2.waitKey(1) & 0xFF == ord('q'):
                     Camera1.release()
                     Camera2.release()
-                    Corner1.reset()
+                    # Corner1.reset()
                     cv2.destroyAllWindows()
-                    cv2.waitKey(0)
+                    # cv2.waitKey(0)
                     m='0'
                     break
         if m=='4':
-            # print NNet1.getOutput(np.asarray((1500,1200)), np.asarray((3448,2448)))
-            print NNet1.denormalize(NNet1.normalize((1,2),(6,6)),(6,6))
-            print NNet1.getOutput(np.asarray((1,2)),(6,6))
+            pass
         if m=='5':
             print 'Exiting'
             break
